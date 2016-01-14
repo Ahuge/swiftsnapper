@@ -288,9 +288,10 @@ var Snapchat;
             this.SNAPCHAT_HASH_PATTERN = '0001110111101110001111010101111011010001001110011000110001000110';
             this.SNAPCHAT_API_SECRET = 'iEk21fuwZApXlz93750dmW22pw389dPwOk';
             this.SNAPCHAT_API_STATIC_TOKEN = 'm198sOkJEn37DjqZ32lpRu76xmw288xSQ9';
-            this.SNAPCHAT_CLIENT_AUTH_TOKEN = null;
-            this.SNAPCHAT_CLIENT_TOKEN = null;
-            this.SNAPCHAT_UUID = null;
+            this.SNAPCHAT_CLIENT_AUTH_TOKEN = null; //TODO: Use val from http://heroku.casper.io/snapchat/ios/endpointauth 
+            this.SNAPCHAT_CLIENT_TOKEN = null; //TODO: Use from http://heroku.casper.io/snapchat/ios/endpointauth 
+            this.SNAPCHAT_AUTH_TOKEN = null;
+            this.SNAPCHAT_UUID = null; //TODO: Use val from http://heroku.casper.io/snapchat/ios/endpointauth 
             this.SNAPCHAT_USER_AGENT = null;
             this.SNAPCHAT_VERSION = '9.18.2.0';
             this.CASPER_USER_AGENT = 'Casper/1.5.2.3 (SwiftSnapper; Windows 10; gzip)';
@@ -303,8 +304,9 @@ var Snapchat;
             this.CASPER_VERSION = '1.5.2.3';
             this.CASPER_DEVICE_ID = null;
         }
-        Agent.prototype.Initialize = function () {
+        Agent.prototype.Initialize = function (cur) {
             var _this = this;
+            this.CURRENT_USER_REFERENCE = cur;
             return new Promise(function (resolve) {
                 _this.InitializeCasper().then(function () {
                     resolve(this);
@@ -345,10 +347,8 @@ var Snapchat;
             if (URI == null || parameters == null)
                 return null;
             URI = new Windows.Foundation.Uri(this.SNAPCHAT_BASE_ENDPOINT + URI);
-            var REQ = Windows.Web['Http'].HttpStringContent(this.ArrayToURIParameters(parameters), Windows.Storage.Streams.UnicodeEncoding.utf8, 'application/x-www-form-urlencoded'), HTTP = new Windows.Web['Http'].HttpClient(), HEAD = HTTP.defaultRequestHeaders;
+            var REQ = Windows.Web['Http'].HttpStringContent(this.ArrayToURIParameters(parameters, false), Windows.Storage.Streams.UnicodeEncoding.utf8, 'application/x-www-form-urlencoded'), HTTP = new Windows.Web['Http'].HttpClient(), HEAD = HTTP.defaultRequestHeaders;
             HEAD = Snapchat.Http.ConfigureHeaders(HEAD, headers);
-            HEAD.append('X-Snapchat-Client-Auth-Token', this.SNAPCHAT_CLIENT_AUTH_TOKEN);
-            HEAD.append('X-Snapchat-UUID', this.SNAPCHAT_UUID);
             return new Promise(function (resolve) {
                 var promise = HTTP.postAsync(URI, REQ).done(function (res) {
                     res.content.readAsStringAsync().done(function (e) {
@@ -402,7 +402,7 @@ var Snapchat;
             if (URI == null || parameters == null)
                 return null;
             URI = new Windows.Foundation.Uri(this.CASPER_ENDPOINT + URI);
-            var REQ = Windows.Web['Http'].HttpStringContent(this.ArrayToURIParameters(parameters), Windows.Storage.Streams.UnicodeEncoding.utf8, 'application/x-www-form-urlencoded'), HTTP = new Windows.Web['Http'].HttpClient(), HEAD = HTTP.defaultRequestHeaders;
+            var REQ = Windows.Web['Http'].HttpStringContent(this.ArrayToURIParameters(parameters, true), Windows.Storage.Streams.UnicodeEncoding.utf8, 'application/x-www-form-urlencoded'), HTTP = new Windows.Web['Http'].HttpClient(), HEAD = HTTP.defaultRequestHeaders;
             HEAD = Snapchat.Http.ConfigureHeaders(HEAD, headers);
             HEAD.append('X-Casper-API-Key', this.CASPER_API_KEY);
             HEAD.append('X-Casper-Signature', this.GenerateCasperRequestSignature(parameters));
@@ -452,14 +452,42 @@ var Snapchat;
                 id += charset.charAt(Math.floor(Math.random() * charset.length));
             return id;
         };
+        Agent.prototype.GetSnapchatAuthFromCasper = function (endpoint, timestamp) {
+            var URI = new Windows.Foundation.Uri('http://heroku.casper.io/snapchat/ios/endpointauth'), parameters = [
+                ['auth_token', this.SNAPCHAT_AUTH_TOKEN],
+                ['casper_version', this.CASPER_VERSION],
+                ['endpoint', endpoint],
+                ['snapchat_version', this.SNAPCHAT_VERSION],
+                ['timestamp', timestamp],
+                ['username', this.CURRENT_USER_REFERENCE.username],
+                ['password', this.CURRENT_USER_REFERENCE.password]
+            ], headers = {
+                'Connection': 'Keep-Alive',
+                'Accept-Encoding': 'gzip',
+                'User-Agent': this.CASPER_USER_AGENT,
+            };
+            var REQ = Windows.Web['Http'].HttpStringContent(this.ArrayToURIParameters(parameters, true), Windows.Storage.Streams.UnicodeEncoding.utf8, 'application/x-www-form-urlencoded'), HTTP = new Windows.Web['Http'].HttpClient(), HEAD = HTTP.defaultRequestHeaders;
+            HEAD = Snapchat.Http.ConfigureHeaders(HEAD, headers);
+            HEAD.append('X-Casper-API-Key', this.CASPER_API_KEY);
+            HEAD.append('X-Casper-Signature', this.GenerateCasperRequestSignature(parameters));
+            return new Promise(function (resolve) {
+                var promise = HTTP.postAsync(URI, REQ).done(function (res) {
+                    res.content.readAsStringAsync().done(function (e) {
+                        resolve(e);
+                    });
+                });
+            });
+        };
         /*
             Converts an Array of Arrys to uri parameters
             Ex. input [['para1', 'val1'], ['para2', 'val2'], ['para3', 'val3']].
         */
-        Agent.prototype.ArrayToURIParameters = function (data) {
-            data = data.sort(function (a, b) {
-                return a[0] > b[0] ? 1 : -1;
-            });
+        Agent.prototype.ArrayToURIParameters = function (data, shouldSort) {
+            if (shouldSort) {
+                data = data.sort(function (a, b) {
+                    return a[0] > b[0] ? 1 : -1;
+                });
+            }
             var res = '';
             for (var n = 0; n < data.length; n++) {
                 if (res != '') {
@@ -490,12 +518,16 @@ var Snapchat;
                 HEAD.connection.parseAdd(headers.Connection);
             if (typeof headers['Cache-Control'] !== 'undefined')
                 HEAD.cacheControl.parseAdd(headers.CacheControl);
-            else
-                HEAD.cacheControl.clear();
             if (typeof headers['User-Agent'] !== 'undefined')
                 HEAD.userAgent.parseAdd(headers['User-Agent']);
             if (typeof headers['X-Snapchat-Client-Token'] !== 'undefined')
                 HEAD.append('X-Snapchat-Client-Token', headers['X-Snapchat-Client-Token']);
+            if (typeof headers['X-Snapchat-Client-Auth-Token'] !== 'undefined')
+                HEAD.append('X-Snapchat-Client-Auth-Token', headers['X-Snapchat-Client-Auth-Token']);
+            if (typeof headers['X-Snapchat-UUID'] !== 'undefined')
+                HEAD.append('X-Snapchat-UUID', headers['X-Snapchat-UUID']);
+            if (typeof headers['X-Timestamp'] !== 'undefined')
+                HEAD.append('X-Timestamp', headers['X-Timestamp']);
             return HEAD;
         }
         Http.ConfigureHeaders = ConfigureHeaders;
@@ -530,7 +562,7 @@ var Snapchat;
             this.SnapchatAgent = new Snapchat.Agent();
             this.CurrentUser = new Snapchat.User();
             return new Promise(function (resolve) {
-                _this.SnapchatAgent.Initialize().then(function () {
+                _this.SnapchatAgent.Initialize(_this.CurrentUser).then(function () {
                     resolve(this);
                 });
             });
@@ -544,7 +576,13 @@ var Snapchat;
                 var snaps = friends[x].pending_received_snaps;
                 for (var n = 0; n < snaps.length; n++) {
                     var snap = snaps[n], sn = new Snapchat.Snap();
+                    sn.conversationId = friends[x].id;
+                    sn.id = snap.id;
+                    sn.mediaType = snap.m;
                     sn.sender = snap.sn;
+                    sn.recipient = snap.rp;
+                    sn.mediaState = snap.st;
+                    //sn.timeSent = snap.sts;
                     sn.timer = snap.timer;
                     sn.timestamp = snap.ts;
                     Snaps.push(sn);
@@ -556,11 +594,45 @@ var Snapchat;
             return Snaps;
         };
         /*
+            Get the media for the provided snap
+        */
+        Client.prototype.GetSnapMedia = function (snap) {
+            var self = this, data = this.AllUpdatesData, timestamp = this.SnapchatAgent.GenerateTimeStamp();
+            return new Promise(function (resolve) {
+                self.SnapchatAgent.GetSnapchatAuthFromCasper('/ph/blob', timestamp).then(function (d) {
+                    var cData = JSON.parse(d);
+                    for (var n = 0; n < cData.endpoints.length; n++)
+                        if (cData.endpoints[n].endpoint == '/ph/blob') {
+                            cData = cData.endpoints[n];
+                            break;
+                        }
+                    var headers = {
+                        'Accept': '*/*',
+                        'Accept-Language': 'en',
+                        'Accept-Locale': 'en_US',
+                        'User-Agent': cData.headers['User-Agent'],
+                        'Connection': 'Keep-Alive',
+                        'Accept-Encoding': 'gzip',
+                        'X-Snapchat-Client-Auth-Token': cData.headers['X-Snapchat-Client-Auth-Token'],
+                        'X-Snapchat-UUID': cData.headers['X-Snapchat-UUID'],
+                    };
+                    self.SnapchatAgent.PostSnapchat('/ph/blob', [
+                        ['id', snap.id],
+                        ['req_token', cData.params['req_token']],
+                        ['timestamp', cData.params['timestamp']],
+                        ['username', self.CurrentUser.username]
+                    ], headers).then(function (data) {
+                        resolve(data);
+                    });
+                });
+            });
+        };
+        /*
             Get a user's SnapTag
             Doesn't work yet.
         */
         Client.prototype.GetSnapTag = function (username) {
-            var self = this, data = this.AllUpdatesData, timestamp = this.SnapchatAgent.GenerateTimeStamp();
+            var self = this, data = this.AllUpdatesData, timestamp = this.SnapchatAgent.GenerateTimeStamp(), req_token = this.SnapchatAgent.GenerateRequestToken(this.SnapchatAgent.SNAPCHAT_AUTH_TOKEN, timestamp);
             return new Promise(function (resolve) {
                 var headers = {
                     'Accept': '*/*',
@@ -571,9 +643,10 @@ var Snapchat;
                     'Connection': 'Keep-Alive',
                 };
                 self.SnapchatAgent.PostSnapchat('/bq/snaptag_download', [
-                    ['user_id', sha256.hex(username.toLowerCase())]['type', 'SVG'],
-                    ['req_token', self.SnapchatAgent.GenerateRequestToken(self.SnapchatAgent.SNAPCHAT_CLIENT_AUTH_TOKEN, timestamp)],
-                    ['timestamp', timestamp.toString()],
+                    ['user_id', sha256.hex(username.toLowerCase())],
+                    ['type', 'SVG'],
+                    ['req_token', req_token],
+                    ['timestamp', timestamp],
                     ['username', username]
                 ], headers).then(function (data) {
                     resolve(data);
@@ -615,6 +688,7 @@ var Snapchat;
                     self.SnapchatAgent.SNAPCHAT_CLIENT_AUTH_TOKEN = data.headers['X-Snapchat-Client-Auth-Token'];
                     self.SnapchatAgent.SNAPCHAT_CLIENT_TOKEN = data.headers['X-Snapchat-Client-Token'];
                     self.SnapchatAgent.SNAPCHAT_UUID = data.headers['X-Snapchat-UUID'];
+                    self.SnapchatAgent.SNAPCHAT_USER_AGENT = data.headers['User-Agent'];
                     headers = data.headers;
                     headers['X-Snapchat-Client-Token'] = self.SnapchatAgent.SNAPCHAT_CLIENT_TOKEN;
                     self.SnapchatAgent.PostSnapchat('/loq/login', [
@@ -633,11 +707,15 @@ var Snapchat;
                         ['width', data.params.width],
                     ], headers).then(function (data) {
                         self.AllUpdatesData = JSON.parse(data);
-                        if (typeof data['status'] !== 'undefined' && data['status'] !== 200) {
-                            resolve({ 'status': data['status'], 'message': data['message'] });
+                        if (typeof self.AllUpdatesData['status'] !== 'undefined' && self.AllUpdatesData['status'] !== 200) {
+                            resolve({ 'status': self.AllUpdatesData['status'], 'message': self.AllUpdatesData['message'] });
                             return;
                         }
+                        self.SnapchatAgent.SNAPCHAT_AUTH_TOKEN = self.AllUpdatesData.updates_response.auth_token;
                         self.CurrentUser.username = details.username;
+                        self.CurrentUser.password = details.password;
+                        self.CurrentUser.google_username = null;
+                        self.CurrentUser.google_password = null;
                         resolve(JSON.parse(data));
                     });
                 });
@@ -894,17 +972,28 @@ var swiftsnapper;
                 else
                     windowManager.showStatusBar();
             });
+            CameraManager.initialize({
+                'frontFacing': false
+            });
             //temp: view unread snaps
             var snaps = SnapchatClient.GetPendingFeed();
             for (var n = 0; n < snaps.length; n++) {
-                var snap = snaps[n], output = '<article class="item"><div class="notify snap"><span class="icon mdl2-checkbox-fill"></span></div><div class="details">' +
+                var snap = snaps[n], output = '<article class="item" id="' + n + '"><div class="notify snap"><span class="icon mdl2-checkbox-fill"></span></div><div class="details">' +
                     '<div class="header">' + snap.sender + '</div>' +
                     '<div class="details">Length: ' + snap.timer.toString() + '</div>' +
                     '</div></article>';
                 $('#SnapsView .SnapsList').append(output);
             }
-            CameraManager.initialize({
-                'frontFacing': false
+            //Temp for showing snaps
+            $('#SnapsView .SnapsList article').on('click tap', function (e) {
+                var snap = snaps[$(e.currentTarget).attr('id')];
+                SnapchatClient.GetSnapMedia(snap).then(function (img) {
+                    $('#ShowSnapView').css('display', 'block');
+                    $('#ShowSnapView img').attr('src', 'data:image/jpeg;base64,' + btoa(img));
+                });
+            });
+            $('#ShowSnapView').on('click tap', function () {
+                $('#ShowSnapView').css('display', 'none');
             });
             $('#ViewSnapsBtn').on('click tap', function () {
                 views.trigger('prev.owl.carousel', [300]);

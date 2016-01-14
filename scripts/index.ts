@@ -176,12 +176,16 @@ module swiftsnapper {
                     windowManager.showStatusBar();
             });
 
+            CameraManager.initialize({
+                'frontFacing': false
+            });
+
             //temp: view unread snaps
-            var snaps = SnapchatClient.GetPendingFeed()
+            let snaps = SnapchatClient.GetPendingFeed();
             for (var n = 0; n < snaps.length; n++) {
                 let snap = snaps[n],
                     output =
-                        '<article class="item"><div class="notify snap"><span class="icon mdl2-checkbox-fill"></span></div><div class="details">' +
+                        '<article class="item" id="' + n + '"><div class="notify snap"><span class="icon mdl2-checkbox-fill"></span></div><div class="details">' +
                         '<div class="header">' + snap.sender + '</div>' +
                         '<div class="details">Length: ' + snap.timer.toString() + '</div>' +
                         '</div></article>';
@@ -189,9 +193,17 @@ module swiftsnapper {
                 $('#SnapsView .SnapsList').append(output);
             }
 
-            CameraManager.initialize({
-                'frontFacing': false
+            //Temp for showing snaps
+            $('#SnapsView .SnapsList article').on('click tap', function (e) {
+                let snap = snaps[$(e.currentTarget).attr('id')];
+                SnapchatClient.GetSnapMedia(snap).then(function (img: string) {
+                    $('#ShowSnapView').css('display', 'block');
+                    $('#ShowSnapView img').attr('src', 'data:image/jpeg;base64,' + btoa(img));
+                });
             });
+            $('#ShowSnapView').on('click tap', function() {
+                $('#ShowSnapView').css('display', 'none');
+            })
 
             $('#ViewSnapsBtn').on('click tap', function () {
                 views.trigger('prev.owl.carousel', [300]);
